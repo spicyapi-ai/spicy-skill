@@ -52,7 +52,7 @@ agent to run real tasks; they do not conflict.
 ### Option 1: `npx skills add` (recommended)
 
 ```bash
-npx skills add Spicy-API/spicy-skill
+npx skills add spicyapi-ai/spicy-skill
 ```
 
 That is [`skills`](https://github.com/vercel-labs/skills), the installer most coding agents share,
@@ -62,8 +62,8 @@ global, and whether to symlink or copy. Add `--agent claude-code` to skip the fi
 to install for every project instead of only the current one, and `-y` to accept the defaults:
 
 ```bash
-npx skills add Spicy-API/spicy-skill --agent claude-code
-npx skills add Spicy-API/spicy-skill --agent codex -g
+npx skills add spicyapi-ai/spicy-skill --agent claude-code
+npx skills add spicyapi-ai/spicy-skill --agent codex -g
 ```
 
 Things worth knowing:
@@ -71,8 +71,8 @@ Things worth knowing:
 - **This installs the current `main`, not the latest npm release.** The two are usually the same
   thing, and `main` is kept releasable for exactly this reason. If you need the published release
   instead, use Option 2 below, which reads npm.
-- **Write the owner exactly as `Spicy-API`, with the hyphen.** `SpicyAPI` is a different account and
-  `skills` will fail to clone it.
+- **Write the owner exactly as `spicyapi-ai`.** The repository moved there in October 2026; the old
+  `Spicy-API` address no longer resolves, so `skills` will fail to clone it.
 - **`Cloning repository…` then `Found 1 skill` is the whole of it.** The Skill lives at
   `skills/spicyapi/` in this repository; nothing else here is installed.
 - **It prints where it installed.** A project install keeps the files in `.agents/skills/spicyapi`
@@ -240,7 +240,7 @@ cancellation API — a queued or running task has to finish before it can be pur
 
 Installed copies do not update themselves, and the installed directory carries no version number.
 
-- **Installed with `skills`:** run the same `npx skills add Spicy-API/spicy-skill …` command
+- **Installed with `skills`:** run the same `npx skills add spicyapi-ai/spicy-skill …` command
   again; it replaces the files with whatever `main` holds at that moment. Remove with
   `npx skills remove spicyapi` (add `-g` for a global install).
 - **Installed with this package:** reinstall over the same target, and delete the directory to
@@ -257,7 +257,7 @@ Removing the Skill does not affect your SpicyAPI account, keys or code the agent
 
 | Symptom                                                              | Fix                                                                                   |
 | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| `Repository not found` or an authentication prompt while cloning     | Check the owner spelling: it is `Spicy-API`, with the hyphen                          |
+| `Repository not found` or an authentication prompt while cloning     | Check the owner spelling: it is `spicyapi-ai` (the old `Spicy-API` owner is gone)     |
 | `No skills found for the scoped path '/skill'`                       | That is the retired address; install from the repository instead                      |
 | `The SpicyAPI Skill download is temporarily unavailable`             | Retry later, or use `npx @spicyapi/skill install`                                     |
 | `skill already exists at …`                                          | A directory is already there; if it is this Skill, reinstall with `--force` to update |

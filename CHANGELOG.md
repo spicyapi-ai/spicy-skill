@@ -4,7 +4,7 @@
 
 ### Patch Changes
 
-- Install from the public repository: `npx skills add Spicy-API/spicy-skill`. The previous address,
+- Install from the public repository: `npx skills add spicyapi-ai/spicy-skill`. The previous address,
   `https://spicyapi.ai/skill`, stopped installing for everyone. The shared installer resolves a URL
   that carries a path against a well-known index *at that path*, finds none, and exits instead of
   falling back to a direct download, so it now reports
