@@ -184,18 +184,20 @@ follows a documented workflow:
    `request_id`.
 9. **Recover instead of resubmitting.** After a timeout, reuse the same idempotency key; on `40901`,
    get a fresh quote; on insufficient funds, go to the Console instead of resending; respect
-   `Retry-After`. There is no batch API, so batches bound their concurrency and give every item its
-   own key.
+   `Retry-After`. The one exception is `50302`, a refunded synchronous failure: it is resent with a
+   new key, because the old one only replays the failure. There is no batch API, so batches bound
+   their concurrency and give every item its own key.
 10. **Only ever shorten retention, and confirm before destroying content.** Destroying a task's
     content is not a refund; the billing record stays.
-11. **Know which workflows cost twice.** The subject-swap video models need an analysis task first,
-    then a swap task that points back at it — two separate charges, with the user choosing which
-    person to replace in between. The Skill makes the agent say that before the first charge instead
-    of after the second.
+11. **Know which workflows cost twice.** The two-step subject-swap video models need an analysis
+    task first, then a swap task that points back at it — two separate charges, with the user
+    choosing which person to replace in between. The Skill makes the agent say that before the first
+    charge instead of after the second, and also warns about models that bill a refused request.
 12. **Answer the right way for text.** These packages cover asynchronous media tasks; the chat
     models in the same catalogue are reached with the caller's existing OpenAI, Anthropic or Gemini
     client pointed at SpicyAPI. The Skill sends the agent there rather than letting it report that
-    SpicyAPI has no text models.
+    SpicyAPI has no text models, and shows how to send images, video and audio to the chat models
+    whose schema accepts them.
 
 It also states what _not_ to do: health and balance checks are optional diagnostics rather than a
 per-task checklist; task history listing exists to recover after a restart or a missed callback, not
@@ -222,8 +224,9 @@ ID from the live catalog — the model page's API tab or `spicyapi models list`.
 spicyapi/
 ├── SKILL.md                    # name, trigger description and required behaviour
 ├── references/
-│   ├── api-workflows.md        # surfaces, generation sequence, prices and tiers, the two-step
-│   │                           # subject-swap workflow, uploads, retention and purge, retries, webhooks
+│   ├── api-workflows.md        # surfaces, chat and media input to chat models, generation sequence,
+│   │                           # result shapes, prices and tiers, the two-step subject-swap workflow,
+│   │                           # uploads, retention and purge, retries, webhooks
 │   └── safety.md               # credentials, billable-call checklist, real tests, cleanup, boundaries
 └── agents/
     └── openai.yaml             # display metadata for clients such as Codex; implicit invocation on
@@ -255,16 +258,16 @@ Removing the Skill does not affect your SpicyAPI account, keys or code the agent
 
 ## Troubleshooting
 
-| Symptom                                                              | Fix                                                                                   |
-| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| `Repository not found` or an authentication prompt while cloning     | Check the owner spelling: it is `spicyapi-ai` (the old `Spicy-API` owner is gone)     |
-| `No skills found for the scoped path '/skill'`                       | That is the retired address; install from the repository instead                      |
-| `The SpicyAPI Skill download is temporarily unavailable`             | Retry later, or use `npx @spicyapi/skill install`                                     |
-| `skill already exists at …`                                          | A directory is already there; if it is this Skill, reinstall with `--force` to update |
-| `refusing to replace …: it is not a SpicyAPI Skill directory`        | `--target` names a parent or unrelated directory; use the `…/spicyapi` path it prints |
-| `--target requires a value`                                          | Pass a directory ending in `/spicyapi`                                                |
-| The agent doesn't use the Skill                                      | Start a new session, check the directory is one your client reads, mention SpicyAPI   |
-| The agent created a paid task without asking                         | Your request may have authorized it; say "show me the price and wait for my OK" first |
+| Symptom                                                          | Fix                                                                                   |
+| ---------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `Repository not found` or an authentication prompt while cloning | Check the owner spelling: it is `spicyapi-ai` (the old `Spicy-API` owner is gone)     |
+| `No skills found for the scoped path '/skill'`                   | That is the retired address; install from the repository instead                      |
+| `The SpicyAPI Skill download is temporarily unavailable`         | Retry later, or use `npx @spicyapi/skill install`                                     |
+| `skill already exists at …`                                      | A directory is already there; if it is this Skill, reinstall with `--force` to update |
+| `refusing to replace …: it is not a SpicyAPI Skill directory`    | `--target` names a parent or unrelated directory; use the `…/spicyapi` path it prints |
+| `--target requires a value`                                      | Pass a directory ending in `/spicyapi`                                                |
+| The agent doesn't use the Skill                                  | Start a new session, check the directory is one your client reads, mention SpicyAPI   |
+| The agent created a paid task without asking                     | Your request may have authorized it; say "show me the price and wait for my OK" first |
 
 ## Boundaries
 

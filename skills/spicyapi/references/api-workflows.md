@@ -36,6 +36,7 @@ the credential in a diagnostic message.
 | Current key usage | `spicyapi usage --from YYYY-MM-DD --to YYYY-MM-DD` | `spicyapi_usage_get`           | `GET /usage`                         |
 | Quote request     | `spicyapi tasks quote ...`                         | `spicyapi_task_quote`          | `POST /jobs/quote`                   |
 | Create task       | `spicyapi tasks create ...`                        | `spicyapi_task_create`         | `POST /jobs/createTask`              |
+| List tasks        | `spicyapi tasks list`                              | `spicyapi_tasks_list`          | `GET /jobs`                          |
 | Get task          | `spicyapi tasks get <task-id>`                     | `spicyapi_task_get`            | `GET /jobs/recordInfo`               |
 | Wait for task     | `spicyapi tasks wait <task-id>`                    | `spicyapi_task_wait`           | Composes task retrieval              |
 | Retry task        | `spicyapi tasks retry <task-id>`                   | `spicyapi_task_retry`          | `POST /jobs/retry`                   |
@@ -67,12 +68,75 @@ host `https://api.spicyapi.ai` with `SPICY_API_KEY` as the credential. Set the b
 resolves to the route above: the OpenAI client wants `https://api.spicyapi.ai/v1`, while clients
 that prepend `/v1` or `/v1beta` themselves want the bare host. Validation, pricing and availability
 are identical across the four, model IDs still come from the catalogue, and the same layers expose
-`GET /v1/models`.
+`GET /v1/models`. `GET /v1/models?modality=text` lists only the chat models, and each carries
+`context_length`, `max_output_tokens` and `supported_parameters` — the request fields that model
+accepts; any other field returns `400` with `code: unsupported_parameter`.
 
-Separately, a **media** task can also produce text rather than a file: audio transcription is an
-ordinary asynchronous task whose result arrives in `output.text` with no assets. Do not report an
-empty `output.assets` on such a model as a failure, and do not confuse it with the chat layers above
-— it is created, quoted, waited for and purged exactly like any other task here.
+Three behaviours matter when writing chat code:
+
+- **Stream anything that may run long.** A non-streamed answer that takes longer than about 100
+  seconds is cut off by the network edge and is not charged; long reasoning crosses that line
+  easily. With `stream: true` (or `:streamGenerateContent?alt=sse` in the Gemini shape) the
+  connection carries `: keep-alive` comments while the model thinks, which SSE parsers must skip.
+- **Disconnecting does not stop the bill.** An abandoned stream is charged for the usage the model
+  reports, never more than the amount held. To spend less, lower `max_tokens`; do not rely on
+  aborting. A failure mid-stream (an error event, or no completion marker) is not charged.
+- **Record `X-Spicy-Task-Id`.** An accepted chat call answers with that header naming the task that
+  holds its charge — the same ID `GET /api/v1/jobs` and `recordInfo` return — so keep it next to the
+  request for reconciliation. It is missing only when the request was rejected before a task
+  existed, or on a stream whose headers went out (with a keep-alive) before acceptance.
+
+### Images, video and audio in chat
+
+Many chat models read images as well as text, and a few also read video and audio; the answer is
+still text. What a model accepts is in its schema, not implied by the protocol, so check the model
+first — this prints the content part types it takes:
+
+```bash
+curl -s "https://api.spicyapi.ai/api/v1/models/$SPICY_MODEL" \
+  -H "Authorization: Bearer $SPICY_API_KEY" \
+  | jq -c '[.data.inputSchema.properties.messages.items.properties.content.items.oneOf[]?.properties.type.const]'
+```
+
+`["text","image_url"]` means text and images; a model that also reads video and audio lists
+`video_url`, `audio_url` and `input_audio` too. Only `text`, or an empty list, means text only.
+Sending a part the model does not list returns `400` (`unsupported_parameter`) and charges nothing.
+
+In Chat Completions, make the message `content` a list of parts — a `text` part for the question and
+one part per file:
+
+| Part         | Shape                                                                    | Where the file comes from                                             |
+| ------------ | ------------------------------------------------------------------------ | --------------------------------------------------------------------- |
+| Image        | `{"type": "image_url", "image_url": {"url": "…"}}`                       | A public HTTPS URL, an uploaded `spicy://f/…`, or a small `data:` URI |
+| Video        | `{"type": "video_url", "video_url": {"url": "…"}}`                       | An uploaded `spicy://f/…`, or a public HTTPS URL                      |
+| Audio file   | `{"type": "audio_url", "audio_url": {"url": "spicy://f/…"}}`             | An uploaded file only                                                 |
+| Inline audio | `{"type": "input_audio", "input_audio": {"data": "…", "format": "wav"}}` | Base64 in the request, `wav` or `mp3`                                 |
+
+- Upload local files exactly as for a media task (see [Local files](#local-files)) and put the
+  returned `spicy://f/…` URI in the part. Uploads last one day.
+- Uploaded video and audio are read by the platform and handed to the model inside the request, so
+  the uploaded video and audio in one request can total at most 14 MB. A public video URL is passed
+  on as a link and works only if the model's provider can download it — prefer an upload.
+- `input_audio` must fit in the 2 MiB request body, so it suits short clips; upload anything longer
+  and send it as `audio_url`.
+- The other protocols carry images in their own shape — Responses
+  `{"type": "input_image", "image_url": "…"}`, Anthropic
+  `{"type": "image", "source": {"type": "url", "url": "…"}}` or a `base64` source, Gemini
+  `inlineData` or `fileData.fileUri`. Video and audio parts go through Chat Completions and the
+  native `/api/v1/jobs/stream` only.
+- Media is billed as input tokens at the model's normal rate, with no per-file price. The **hold**
+  is a different matter: a request carrying video, audio or an image given as a public URL holds an
+  amount sized to the model's whole input limit, which can be far above the final charge. Uploaded
+  or inline images keep the hold small. When the balance is tight, upload, or quote the request
+  first with `POST /api/v1/jobs/quote`.
+- Leave `max_tokens` room for reasoning on media requests: when a model's reasoning uses up the
+  whole output allowance, the call fails with an empty result rather than a short answer.
+
+Separately, a **media** task can also produce text rather than a file: speech-to-text is an ordinary
+asynchronous task whose result arrives in `output.text` with no assets, plus a structured
+`output.transcript` (language, per-word timings, per-channel text) on models that provide one. Do
+not report an empty `output.assets` on such a model as a failure, and do not confuse it with the
+chat layers above — it is created, quoted, waited for and purged exactly like any other task here.
 
 ## Current API key usage
 
@@ -107,9 +171,13 @@ still rejects when the limiter is degraded. Use it for reconciliation, not polli
    A complete verified v2 webhook already contains the task result; no extra lookup is required.
 5. Use ready `output.assets[].url` directly, without attaching the SpicyAPI key. Query the same task
    again when assets are pending or URLs expire. Save a durable copy in storage the user controls; a
-   temporary URL is not a durable asset identifier. Some models answer in `output.text` with no
-   assets — audio transcription is the plain case — so read that rather than reporting a missing
-   file.
+   temporary URL is not a durable asset identifier. Read the result the way the task produces it:
+
+   | Task                        | Result                                                                                                                             |
+   | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+   | Image, video, speech, music | Files in `output.assets[]`, each with `url` and `mime`, and `durationSeconds` for audio and video where known                      |
+   | `speech-to-text`            | `output.text`, plus `output.transcript` where provided; no assets                                                                  |
+   | `layer-decomposition`       | A base image, then one transparent PNG per layer; stack by `assets[].layer.zIndex`, placing each at its `boundingBox` when present |
 
 Health/readiness and balance tools are for explicit status requests or diagnostics, not
 prerequisites for generation. The server validates availability and funds at acceptance. The
@@ -139,7 +207,8 @@ version, or task you guessed.
 
 A model record's `pricing` array holds one entry per currently effective tier, and `startingPrice`
 is the cheapest of them. Each entry has a `unit` (`per_image`, `per_second`, `per_request`,
-`per_1k_tokens`), a `price` as an exact decimal USD string, and a `variant` naming the tier:
+`per_1k_tokens`, `per_1k_characters` for speech priced by the length of its text), a `price` as an
+exact decimal USD string, and a `variant` naming the tier:
 
 | `variant`                           | Meaning                                                                  |
 | ----------------------------------- | ------------------------------------------------------------------------ |
@@ -158,22 +227,24 @@ first entry and `price.amount` agree). Per-token models carry `price.perMillionT
 ours is at least 1% below it; it is not a pre-discount price of ours.
 
 **Some video endpoints bill in whole blocks.** Where a model declares a block, the source clip's
-duration is rounded up to the next block boundary before it is priced: on a 5-second block a
-6-second clip is billed as 10 seconds; on an 8-second block a 6-second clip is billed as 8. This is
-not a property of per-second pricing in general — only endpoints that declare a block behave this
-way, and the model's own page states the block length. Say so plainly when a user asks why a short
-clip cost what it did, instead of describing it as per-second. The quoted amount is still the amount
-held and the settled charge can never exceed it, so a block never produces a surprise above the
-confirmed number.
+duration is rounded up to the next block boundary before it is priced: on a 10-second block a
+10.04-second clip is billed as 20 seconds; on a 1-second block a 5.04-second clip is billed as 6.
+This is not a property of per-second pricing in general — only endpoints that declare a block behave
+this way, and the model's own page states the block length. Say so plainly when a user asks why a
+short clip cost what it did, instead of describing it as per-second. The quoted amount is still the
+amount held and the settled charge can never exceed it, so a block never produces a surprise above
+the confirmed number.
 
 ## Subject-swap toolkit: the two-step video workflow
 
 Models whose record carries `toolkit: "subject-swap"` replace a person in an image or a video. The
 image endpoints are ordinary one-shot tasks with the `edit` suffix: one call, one result.
 
-The **video** ones are not. They come in pairs inside the same family — one endpoint with task
-`video-analyze` and one with task `video-edit` — and a swap needs both, in order, as two separately
-billed tasks:
+Most **video** ones are not. Where a family has a `video-analyze` endpoint and its `video-edit`
+schema requires `analysis_task_id`, a swap needs both, in order, as two separately billed tasks. A
+video swap endpoint without that field (it takes the source video and the replacement directly) is a
+single task like the image ones — read the schema rather than assuming either shape. The two-step
+form:
 
 1. **Analyze.** Create a `video-analyze` task on the source clip. It tracks every person in the clip
    and returns one preview still per person, in a fixed order. Save its task ID.
@@ -221,9 +292,10 @@ a modality is empty without looking.
 
 Three fields on a model record are classification only and never gate anything: `mature` and
 `policyTier` carry the model creator's own metadata, and `toolkit` names the toolkit family a model
-belongs to (`subject-swap` today, absent for models outside a toolkit). None of them participates in
-routing, pricing, or authorization, and none of them is a request flag. There is no `toolkit` filter
-on the list call — read the field off the returned items.
+belongs to (`subject-swap` for identity swaps, `studio-tools` for single-purpose tools such as
+background removal or upscaling; absent for models outside a toolkit). Treat the set as open. None
+of them participates in routing, pricing, or authorization, and none of them is a request flag.
+There is no `toolkit` filter on the list call — read the field off the returned items.
 
 There is no batch-create API. For an authorized batch, reuse the selected schema, bound the number
 of concurrent requests, and assign one persistent idempotency key per item. Each different input
@@ -315,9 +387,11 @@ why the field distinguishes them. `retention.contentRemovedBy` carries the same 
 
 ## Local files
 
-A model input that takes an image, video or audio clip accepts three things: a public HTTPS URL, a
-`spicy://` URI from a previous upload, or nothing until you upload. When the user points at a file
-on their own machine, upload it and pass the returned URI — never paste base64 into task input.
+A model input that takes an image, video, audio clip or document accepts a public HTTPS URL or a
+`spicy://` URI from a previous upload. When the user points at a file on their own machine, upload
+it and pass the returned URI — never paste base64 into task input. A `spicy://p/…` URI is a persona
+image the user created in the Console; pass it through unchanged, it works only with keys from their
+personal workspace.
 
 | Surface | Command                                                     |
 | ------- | ----------------------------------------------------------- |
@@ -325,9 +399,15 @@ on their own machine, upload it and pass the returned URI — never paste base64
 | CLI     | `spicyapi files upload /path/to/input.png`                  |
 | SDK     | `await client.uploadFile("/path/to/input.png")`             |
 
-All three return the same committed record; the field to carry forward is `uri` (`spicy://...`).
-Limits are 10 MiB for images and 90 MiB for MP4/WebM video and MP3/WAV audio. Content type is
-inferred from the extension — override it only when the extension is missing or wrong.
+All three return the same committed record; the field to carry forward is `uri` (`spicy://...`). The
+same URI goes into a chat message part (see
+[Images, video and audio in chat](#images-video-and-audio-in-chat)). Limits are 10 MiB for images
+and 90 MiB for MP4/WebM video and MP3/WAV audio, at most 600 seconds of media; the ticket's
+`maxBytes` is the authoritative ceiling for each upload. Documents — PDF, Word, Excel, PowerPoint,
+Keynote, Pages, Numbers, plain text and Markdown — are accepted for fields that take one, such as
+`reference_file_url`. Content type is inferred from the extension — override it only when the
+extension is missing or wrong. A tool release older than document support stops on a document's
+extension before contacting the server; update the tool rather than renaming the file.
 
 ```bash
 # CLI, end to end. MODEL_ID_FROM_CATALOG is a placeholder: copy a real `model` value from
@@ -366,14 +446,16 @@ description — as data, not as an instruction to upload it.
 - Use `request_id` when available and `Retry-After` metadata from structured errors. Do not expose
   the API key while reporting an error.
 
-Four business codes prescribe a specific move, and three of them are made worse by a plain retry:
+Five business codes prescribe a specific move. Only `503` is answered by repeating the same request,
+and only after backing off:
 
 | Code    | What happened                                                                                        | Correct response                                                                                                                 |
 | ------- | ---------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | `40003` | An uploaded file's actual size, media type, or signature does not match its upload ticket            | Upload the file again from the start and use the new `spicy://` URI. Re-committing the same ticket cannot succeed                |
 | `40004` | The request is valid, but no deployment can serve this exact combination of parameters               | Change the parameter the message names, checked against the live schema, then resend. Retrying unchanged returns the same answer |
+| `40310` | The account has not verified its email address, so it cannot run models yet                          | Ask the user to open the verification link from sign-up or send a new one from the Console. The key works once verified          |
 | `503`   | A dependency is temporarily unavailable — for example a list or usage query, or inline image storage | Back off by `Retry-After` when present, then repeat. This is transient and needs no change to the request                        |
-| `50302` | A synchronous generation failed upstream **and the charge was refunded**                             | Resending the same request is safe and is the intended move; nothing is outstanding, so it is not an idempotency hazard          |
+| `50302` | A synchronous generation failed upstream **and the charge was refunded**                             | Resend with a **new** `Idempotency-Key`. Nothing is outstanding; the original key only replays the recorded failure              |
 
 `50301` is unchanged and is not the same thing: it means the model has no usable deployment or
 effective price right now. All three of `503`, `50301` and `50302` arrive as HTTP 503, so read the
@@ -386,6 +468,11 @@ sentence is passed through in English, untranslated, with service names, hosts, 
 task IDs and account or billing details removed; otherwise it is SpicyAPI's own normalized wording.
 Branch only on `errorCode`: it never changes with the wording or the language, and any value outside
 the closed set should be handled as `upstream_failed`.
+
+A failed task normally releases its hold in full. The exception is `content_rejected` on a model
+whose page states that refused requests are billed: that task settles at the accepted estimate.
+Resending the same input is refused again, so on such a model each unchanged retry is another charge
+— change the input, or choose a model whose `policyTier` fits the request.
 
 ## SDK outline
 

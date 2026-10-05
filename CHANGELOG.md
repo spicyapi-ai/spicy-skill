@@ -1,13 +1,43 @@
 # @spicyapi/skill
 
+## 0.4.0
+
+### Minor Changes
+
+- Teach media input to chat models. Since 2026-10-05 many chat models read images, and some read
+  video and audio, as content parts in the message. The workflow reference now shows how to read
+  which parts a model accepts from its schema, the four part shapes (`image_url`, `video_url`,
+  `audio_url`, `input_audio`), how an uploaded `spicy://f/` URI goes into a part, the 14 MB limit on
+  uploaded video and audio per request, and why a request with video, audio or a public image URL
+  holds far more than it will cost. It also covers streaming long answers (a non-streamed answer is
+  cut off at about 100 seconds), that disconnecting does not stop the bill, and `X-Spicy-Task-Id`
+  for reconciliation.
+- Correct the advice for business code `50302`. The Skill said resending the same request was safe;
+  the contract says the original `Idempotency-Key` replays the recorded failure, so the retry needs
+  a new key. Combined with the Skill's own rule to keep one key across uncertain responses, an agent
+  following the old text would have replayed the same failure indefinitely.
+- Correct the subject-swap guidance: not every video swap is two tasks. Only a `video-edit` endpoint
+  whose schema requires `analysis_task_id` needs a prior `video-analyze` task; a video swap without
+  that field is a single task.
+- Add business code `40310` (the account's email address is not verified, so it cannot run models
+  yet), and the one billed failure: a `content_rejected` task on a model whose page states that
+  refusals are billed settles at the accepted estimate, so a refused request must not be resent
+  unchanged there.
+- Describe results by task: speech and music arrive as audio files in `output.assets`,
+  speech-to-text as `output.text` plus a structured `output.transcript`, and layer decomposition as
+  a base image and transparent layers ordered by `layer.zIndex`. Add the `per_1k_characters` price
+  unit, the `studio-tools` toolkit, document uploads (PDF, Office, iWork, plain text, Markdown) for
+  fields such as `reference_file_url`, persona `spicy://p/` URIs, and the task-listing row in the
+  surface table. The block-billing examples now use block lengths that exist.
+
 ## 0.3.4
 
 ### Patch Changes
 
-- Install from the public repository: `npx skills add spicyapi-ai/spicy-skill`. The previous address,
-  `https://spicyapi.ai/skill`, stopped installing for everyone. The shared installer resolves a URL
-  that carries a path against a well-known index *at that path*, finds none, and exits instead of
-  falling back to a direct download, so it now reports
+- Install from the public repository: `npx skills add spicyapi-ai/spicy-skill`. The previous
+  address, `https://spicyapi.ai/skill`, stopped installing for everyone. The shared installer
+  resolves a URL that carries a path against a well-known index _at that path_, finds none, and
+  exits instead of falling back to a direct download, so it now reports
   `No skills found for the scoped path '/skill'`. The README and the troubleshooting table follow
   the repository route, and note that this installs the current `main` rather than the published
   release — use `npx @spicyapi/skill install` for the npm release. The Skill's own instructions are

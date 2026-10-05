@@ -31,23 +31,33 @@ Task creation and retry can reserve funds. Before execution:
 Decline, cancellation of confirmation, schema mismatch, or missing confirmation must result in zero
 billable create calls; a read-only quote may already have been fetched.
 
-Two things make a stated price differ from a naive estimate, and both must be said out loud rather
+Four things make a stated price differ from a naive estimate, and each must be said out loud rather
 than discovered on the invoice:
 
-- **A workflow can be more than one charge.** The `subject-swap` video endpoints need an analysis
-  task and then a swap task, billed separately. Authorization for "the swap" is not authorization
-  for two charges unless the user was told there are two, and each one gets its own quote and
-  confirmation.
+- **A workflow can be more than one charge.** A `subject-swap` video endpoint whose schema requires
+  `analysis_task_id` needs an analysis task and then a swap task, billed separately. Authorization
+  for "the swap" is not authorization for two charges unless the user was told there are two, and
+  each one gets its own quote and confirmation.
 - **Some video endpoints bill in whole blocks.** Where a model declares a block, the source clip's
-  duration is rounded up to the next block boundary before pricing, so a 6-second clip can be billed
-  as 8 or as 10 seconds. Quote the exact request instead of extrapolating a per-second rate, and do
-  not describe such an endpoint as simply per-second.
+  duration is rounded up to the next block boundary before pricing, so a 5.04-second clip on a
+  1-second block is billed as 6 seconds and a 10.04-second clip on a 10-second block as 20. Quote
+  the exact request instead of extrapolating a per-second rate, and do not describe such an endpoint
+  as simply per-second.
+- **Some models bill a refusal.** Failed tasks normally release their hold, but where a model's page
+  states that refused requests are billed, a `content_rejected` task settles at the accepted
+  estimate. Say so before the first call on such a model, and never resend a refused request
+  unchanged there: it is refused again and charged again.
+- **A chat request with media can hold far more than it will cost.** Video, audio, or an image given
+  as a public URL makes the hold cover the model's whole input limit. The settled charge is the real
+  token usage, but the balance must cover the hold first.
 
 Business code `50302` is the one failure that has already been refunded: a synchronous generation
-failed upstream and the charge was reversed, so resending the same request is safe and is the
-intended move. Do not present it to the user as money at risk, and do not treat `40004` (no
-deployment serves that parameter combination) as transient — it needs a changed parameter, and
-resending it unchanged only spends time.
+failed upstream and the charge was reversed. Resend it with a **new** `Idempotency-Key` — the
+original key only replays the recorded failure, so a retry that keeps it can never succeed. Do not
+present it to the user as money at risk, and do not treat `40004` (no deployment serves that
+parameter combination) as transient — it needs a changed parameter, and resending it unchanged only
+spends time. `40310` means the account's email address is not verified yet; only the user can fix
+that, in the Console.
 
 ## Model capabilities
 
