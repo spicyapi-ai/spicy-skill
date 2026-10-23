@@ -198,6 +198,12 @@ follows a documented workflow:
     client pointed at SpicyAPI. The Skill sends the agent there rather than letting it report that
     SpicyAPI has no text models, and shows how to send images, video and audio to the chat models
     whose schema accepts them.
+13. **Reuse files through the asset library.** A file the user wants again is saved once and passed
+    as its `spicy://a/<id>` reference instead of being uploaded every day; the key decides whether
+    that is the personal library or a team's shared one. A refused save is explained from the
+    storage plan (`assets usage`), not retried, and deleting an asset is confirmed like any other
+    irreversible step. Listings filter by favorite and folder; a character's images go, in order,
+    into the model's reference image field; old `spicy://p/` persona references still work.
 
 It also states what _not_ to do: health and balance checks are optional diagnostics rather than a
 per-task checklist; task history listing exists to recover after a restart or a missed callback, not
@@ -217,6 +223,8 @@ ID from the live catalog — the model page's API tab or `spicyapi models list`.
 - _"Let users upload a photo and turn it into a short video with SpicyAPI."_
 - _"Make my SpicyAPI calls retry timeouts without paying twice and show a clear message when the
   balance is too low."_
+- _"Save each finished SpicyAPI portrait to my asset library and reuse it as the reference image in
+  the next request."_
 
 ## What's inside
 
@@ -226,7 +234,8 @@ spicyapi/
 ├── references/
 │   ├── api-workflows.md        # surfaces, chat and media input to chat models, generation sequence,
 │   │                           # result shapes, prices and tiers, the two-step subject-swap workflow,
-│   │                           # uploads, retention and purge, retries, webhooks
+│   │                           # uploads, the asset library and characters, retention and purge,
+│   │                           # retries, webhooks
 │   └── safety.md               # credentials, billable-call checklist, real tests, cleanup, boundaries
 └── agents/
     └── openai.yaml             # display metadata for clients such as Codex; implicit invocation on

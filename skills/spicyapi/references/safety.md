@@ -95,6 +95,9 @@ task cannot be canceled; wait for it to finish before purging. Therefore:
 
 - Purge a task's content only when the user agreed and has saved any result they still want, and
   verify `contentState: purged` on the task record afterwards.
+- Delete a saved asset (`assets delete` / `spicyapi_asset_delete` / `client.assets.delete`) only
+  when the user named it. It is irreversible, and any request that still references its `spicy://a/`
+  uri fails from then on.
 - Do not claim public-API cleanup for task records, uploaded objects, or anything else purge does
   not remove.
 - Do not delete adjacent account data or reach into production databases as a workaround.
