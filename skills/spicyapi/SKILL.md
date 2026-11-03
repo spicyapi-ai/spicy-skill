@@ -64,8 +64,11 @@ integration tests, webhook handling, credential work, or cleanup.
 - Use ready `output.assets[].url` directly — that includes the audio files that speech and music
   models produce. A complete verified v2 webhook needs no extra task lookup or download ticket.
   Query again for pending assets or expired links. Speech-to-text models answer in `output.text`
-  (plus a structured `output.transcript` where the model provides one) with no assets, so empty
-  `output.assets` is not automatically a failure.
+  (plus a structured `output.transcript` with words and timed `segments` where the model provides
+  them) with no assets, and embedding models answer in `output.embeddings`, so empty `output.assets`
+  is not automatically a failure. Image-to-3D and text-to-3D return a `mesh` asset (a `.glb` file),
+  vector models return `image/svg+xml` images, and video translation can add a `subtitle` asset
+  (`.srt`).
 - These surfaces cover asynchronous media tasks only. The catalog also contains chat models, served
   by the OpenAI (`/v1/chat/completions`, `/v1/responses`), Anthropic (`/v1/messages`) and Google
   Gemini (`/v1beta/models/{model}:generateContent`) compatible layers under
@@ -73,7 +76,10 @@ integration tests, webhook handling, credential work, or cleanup.
   `SPICY_API_KEY`, setting its base URL so it resolves to the route above — the OpenAI client wants
   `https://api.spicyapi.ai/v1`, clients that prepend `/v1` or `/v1beta` themselves want the bare
   host. This split is a product decision: do not propose adding a chat method to the SDK, CLI, or
-  MCP server, and never tell a user SpicyAPI has no text models.
+  MCP server, and never tell a user SpicyAPI has no text models. Embedding and text-to-speech models
+  also answer at OpenAI-compatible `POST /v1/embeddings` and `POST /v1/audio/speech`; live voice and
+  live transcription (`realtime`, `realtime-transcription` in `tasks`) need a server-side WebSocket
+  to `wss://api.spicyapi.ai/v1/realtime`, while a task runs only one bounded turn.
 - Many chat models also read images, and some read video and audio, sent as content parts in the
   message. Which parts a model takes is in its own input schema, not implied by the protocol: read
   it before sending media, and never claim a chat model can or cannot see a file without checking.
