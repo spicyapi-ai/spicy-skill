@@ -78,9 +78,21 @@ host `https://api.spicyapi.ai` with `SPICY_API_KEY` as the credential. Set the b
 resolves to the route above: the OpenAI client wants `https://api.spicyapi.ai/v1`, while clients
 that prepend `/v1` or `/v1beta` themselves want the bare host. Validation, pricing and availability
 are identical across the four, model IDs still come from the catalogue, and the same layers expose
-`GET /v1/models`. `GET /v1/models?modality=text` lists only the chat models, and each carries
-`context_length`, `max_output_tokens` and `supported_parameters` — the request fields that model
-accepts; any other field returns `400` with `code: unsupported_parameter`.
+`GET /v1/models`. `GET /v1/models?modality=text` lists the text-modality models — chat models, and
+also embedding models (task `embedding`), which are called through `POST /v1/embeddings` or a task
+rather than a chat route. Each chat model carries `context_length`, `max_output_tokens` and
+`supported_parameters` — the request fields that model accepts; any other field returns `400` with
+`code: unsupported_parameter`.
+
+The same host serves three more OpenAI-compatible routes. `POST /v1/embeddings` returns vectors in
+OpenAI's shape (up to 128 inputs; `encoding_format: "base64"` gives little-endian float32).
+`POST /v1/audio/speech` returns the audio bytes of a text-to-speech model, after settlement, with
+the task in `X-Spicy-Task-Id`. `wss://api.spicyapi.ai/v1/realtime` is a server-side WebSocket for
+models whose `tasks` include `realtime` (live voice, `max_tokens` and `max_context_tokens` cap each
+turn) or `realtime-transcription` (`intent=transcription`, `max_audio_seconds` caps each committed
+segment); each turn or segment is settled as its own task. Browsers must connect through the
+caller's server so the key stays private. File transcription is not a compatible route: it is a
+`speech-to-text` task. See https://docs.spicyapi.ai/docs/realtime-audio.
 
 Three behaviours matter when writing chat code:
 
@@ -186,8 +198,13 @@ still rejects when the limiter is degraded. Use it for reconciliation, not polli
    | Task                        | Result                                                                                                                             |
    | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
    | Image, video, speech, music | Files in `output.assets[]`, each with `url` and `mime`, and `durationSeconds` for audio and video where known                      |
-   | `speech-to-text`            | `output.text`, plus `output.transcript` where provided; no assets                                                                  |
+   | `speech-to-text`            | `output.text`, plus `output.transcript` (words, timed `segments`, language) where provided; no assets                              |
+   | `embedding`                 | `output.embeddings`: `inputTokens` and `data[]` with each input's `index` and `embedding` vector; no assets                        |
    | `layer-decomposition`       | A base image, then one transparent PNG per layer; stack by `assets[].layer.zIndex`, placing each at its `boundingBox` when present |
+   | `image-to-3d`, `text-to-3d` | One `mesh` asset: a binary glTF `.glb` file (`mime` `model/gltf-binary`, textures embedded)                                        |
+   | Vector (SVG) models         | `image` assets with `mime` `image/svg+xml`, served as attachments                                                                  |
+   | `video-translate`           | The dubbed `video`, plus a `subtitle` asset (`.srt`) on models that produce one                                                    |
+   | `video-extend`              | The joined `video` first, then the new part alone as `segment`, on endpoints that join the source clip                             |
 
 Health/readiness and balance tools are for explicit status requests or diagnostics, not
 prerequisites for generation. The server validates availability and funds at acceptance. The
